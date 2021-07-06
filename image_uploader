@@ -1,0 +1,331 @@
+import 'dart:io';
+import 'dart:ui';
+import 'dart:convert';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:attenv02/home_page.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+
+class ImageUpload extends StatefulWidget {
+  @override
+  _ImageUploadState createState() => _ImageUploadState();
+}
+
+class _ImageUploadState extends State<ImageUpload> {
+  late SharedPreferences sharedPreferences;
+  late Size deviceSize;
+  Future<File>? file;
+  late String base64Image;
+  String status = '';
+  late File tmpFile;
+  String errMessage = 'Error Uploading Image';
+  DateTime selectedDate = DateTime.now();
+  final TextEditingController CommentController = new TextEditingController();
+
+
+  @override
+  void initState() {
+  }
+
+  chooseImage() {
+    setState((){
+      file =  ImagePicker().getImage(source: ImageSource.gallery) as Future<File>;
+    });
+  }
+
+  bool _decideWhichDayToEnable(DateTime day) {
+    if ((day.isAfter(DateTime.now().subtract(Duration(days: 1))) &&
+        day.isBefore(DateTime.now().add(Duration(days: 10))))) {
+      return true;
+    }
+    return false;
+  }
+
+  backtohome(){
+    Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (BuildContext context) => HomePage()), (Route<dynamic> route) => false);
+  }
+  setStatus(String message) {
+    setState(() {
+      status = message;
+    });
+  }
+  startUpload()async {
+    setStatus('Uploading Image...');
+    if (null == tmpFile) {
+      setStatus(errMessage);
+      return;
+    }
+    String fileName = tmpFile.path.split('/').last;
+    upload(base64Image);
+  }
+
+  Future upload(String file)async{
+    SharedPreferences sharedPreferences = await SharedPreferences.getInstance();
+    var jsonResponse = null;
+    var sid= sharedPreferences.getString("sid");
+    var comment = CommentController.text;
+    String formattedDate = DateFormat('yyyy-MM-dd').format(selectedDate);
+
+    Map data = {
+      "file": file,
+      "content":comment,
+      "bill_date":formattedDate,
+    };
+    Map<String, String> headers = {
+      'Content-Type': 'application/json; charset=UTF-8',
+      'sid':'$sid',
+    };
+
+    var response = await http.post((Uri.http("******", "**********")),body:jsonEncode(data),headers:headers
+    );
+    if(response.statusCode == 200) {
+      jsonResponse = json.decode(response.body);
+
+      if(jsonResponse['err']==0){
+        setStatus('Uploaded');
+        print(jsonResponse);
+      }
+    }else{
+      print(response.body);
+      setStatus('Server Error');
+    }
+  }
+
+
+  bool decideWhichDayToEnable(DateTime day) {
+    if ((day.isAfter(DateTime.now().subtract(Duration(days: 1))) &&
+        day.isBefore(DateTime.now().add(Duration(days: 10))))) {
+      return true;
+    }
+    return false;
+  }
+
+  _selectDate(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    assert(theme.platform != null);
+    switch (theme.platform) {
+      case TargetPlatform.android:
+      case TargetPlatform.fuchsia:
+      case TargetPlatform.linux:
+      case TargetPlatform.windows:
+        return buildMaterialDatePicker(context);
+      case TargetPlatform.iOS:
+      case TargetPlatform.macOS:
+        return buildCupertinoDatePicker(context);
+    }
+  }
+  buildCupertinoDatePicker(BuildContext context) {
+    showModalBottomSheet(
+        context: context,
+        builder: (BuildContext builder) {
+          return Container(
+            height: MediaQuery.of(context).copyWith().size.height / 3,
+            color: Colors.white,
+            child: CupertinoDatePicker(
+              mode: CupertinoDatePickerMode.date,
+              onDateTimeChanged: (picked) {
+                if (picked != null && picked != selectedDate)
+                  setState(() {
+                    selectedDate = picked;
+                  });
+              },
+              initialDateTime: selectedDate,
+              minimumYear: 2000,
+              maximumYear: 2025,
+            ),
+          );
+        });
+  }
+
+  buildMaterialDatePicker(BuildContext context) async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: selectedDate,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2025),
+      initialEntryMode: DatePickerEntryMode.calendar,
+      initialDatePickerMode: DatePickerMode.day,
+      selectableDayPredicate: _decideWhichDayToEnable,
+      helpText: 'Select booking date',
+      cancelText: 'Not now',
+      confirmText: 'Book',
+      errorFormatText: 'Enter valid date',
+      errorInvalidText: 'Enter date in valid range',
+      fieldLabelText: 'Booking date',
+      fieldHintText: 'Month/Date/Year',
+      builder: (context, child) {
+         return Theme(
+          data: ThemeData.light(),
+          child: child!,
+        );
+      },
+    );
+    if (picked != null && picked != selectedDate)
+      setState(() {
+        selectedDate = picked;
+      });
+  }
+
+  Widget showImage() {
+    return FutureBuilder<File>(
+      future: file,
+      builder: (BuildContext context, AsyncSnapshot<File> snapshot) {
+        if (snapshot.connectionState == ConnectionState.done &&
+            null != snapshot.data) {
+          tmpFile = snapshot.data!;
+          base64Image = base64Encode(snapshot.data!.readAsBytesSync());
+          return Flexible(
+              child:Container(
+                child:Image.file(
+                  snapshot.data!,
+                  fit: BoxFit.fill,
+                ),
+              )
+          );
+        } else if (null != snapshot.error) {
+          return const Text(
+            '画像の選択エラー',
+            textAlign: TextAlign.center,
+          );
+        } else {
+          return const Text(
+            '画像が選択されていません',
+            textAlign: TextAlign.center,
+          );
+        }
+      },
+    );
+  }
+
+
+
+  // ***********MAIN UI BUILDER*******************
+  @override
+  Widget build(BuildContext context) {
+    deviceSize = MediaQuery.of(context).size;
+    return Scaffold(
+        appBar: AppBar(
+          backgroundColor:Color.fromRGBO(255, 191, 68, 1),
+          title:Text("画像選択"),
+          actions: <Widget>[
+            FlatButton(
+              onPressed: () {
+                backtohome();
+              },
+              child: Text("Back", style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+        body:SingleChildScrollView(
+            child:Container(
+              height:deviceSize.height,
+              decoration: BoxDecoration(
+                  image: DecorationImage(
+                      image: AssetImage("assets/bg.jpg"), fit: BoxFit.fill)),
+              child:Container(
+                padding: EdgeInsets.all(30.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    TextButton(
+                        style: TextButton.styleFrom(
+                          primary: Colors.white,
+                          backgroundColor: Colors.orange,),
+                        onPressed:() {
+                          _selectDate(context);
+                        },
+                        child:Container(
+                          width: 300,
+                          height: 20,
+                          child: Center(
+                            child:Text("${selectedDate.toLocal()}".split(' ')[0],
+                                style: TextStyle(fontSize: 20)),
+                          ),
+                        )),
+                    TextButton(
+                        style: TextButton.styleFrom(
+                          primary: Colors.white,
+                          backgroundColor: Colors.orange,),
+                        onPressed:() {
+                          chooseImage();
+                        },
+                        child:Container(
+                          width: 300,
+                          height: 20,
+                          child: Center(
+                            child:Text("画像を選択する",
+                                style: TextStyle(fontSize: 18)),
+                          ),
+                        )),
+                    SizedBox(
+                      height: 20.0,
+                    ),
+                    showImage(),
+                    SizedBox(
+                      height: 20.0,
+                    ),
+                    SizedBox(
+                      height: 20.0,
+                    ),
+                    Text(
+                      status,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.black,
+                        fontWeight: FontWeight.w500,
+                        fontSize: 20.0,
+                      ),
+                    ),
+                    Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.all(Radius.circular(20)),
+                        color:Color.fromRGBO(255, 191, 68, 1),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.2),
+                            spreadRadius: 1,
+                            blurRadius: 5,
+                            offset: Offset(0, 4), // changes position of shadow
+                          ),
+                        ],
+                      ),
+                      child:Padding(padding: EdgeInsets.only(left: 10, right:10, top:0),
+                        child: TextField(
+                          decoration: const InputDecoration(
+                            hintText: 'コメント',
+                          ),
+                          controller: CommentController,
+                          autofocus: false,
+                          maxLines: null,
+                          keyboardType: TextInputType.text,
+                        ),
+                      ),
+                    ),
+                    TextButton(
+                        style: TextButton.styleFrom(
+                          primary: Colors.white,
+                          backgroundColor: Colors.orange,),
+                        onPressed:() {
+                          startUpload();
+                        },
+                        child:Container(
+                          width: 300,
+                          height: 20,
+                          child: Center(
+                            child:Text("アップロード",
+                                style: TextStyle(fontSize: 18)),
+                          ),
+                        )),
+                  ],
+                ),
+              ),
+            )
+        )
+    );
+  }
+
+}
